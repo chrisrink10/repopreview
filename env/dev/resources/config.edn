@@ -1,0 +1,7 @@
+{:repopreview {:logging    {:level :debug}
+               :web-server {:ip         "0.0.0.0"
+                            :port       8080
+                            :thread     4
+                            :queue-size 20000
+                            :max-body   8388608
+                            :max-line   4096}}}
