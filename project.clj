@@ -11,20 +11,19 @@
                  [org.clojure/tools.cli "0.3.5"]
                  [org.clojure/tools.reader "1.2.1"]
 
-                 [mount "0.1.12"]
-                 [medley "0.8.4"]
-                 [cprop "0.1.11"]
+                 [com.google.guava/guava "24.1-jre"]
                  [com.taoensso/timbre "4.10.0"
                   :exclusions [org.clojure/tools.reader]]
+                 [cprop "0.1.11"]
+                 [mount "0.1.12"]
+                 [medley "0.8.4"]
 
                  [http-kit "2.2.0"]
                  [ring/ring-core "1.6.3"]
                  [ring/ring-devel "1.6.3"]
                  [bidi "2.1.2"]
-                 [cheshire "5.7.1"]
                  [hiccup "1.0.5"]
-                 [org.kohsuke/github-api "1.92"
-                  :exclusions [com.fasterxml.jackson.core/jackson-core]]]
+                 [org.kohsuke/github-api "1.92"]]
 
   :source-paths ["src/clojure"]
   :resource-paths ["resources"]

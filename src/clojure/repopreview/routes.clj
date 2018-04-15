@@ -14,7 +14,6 @@
 
 (ns repopreview.routes
   (:require
-   [clojure.string :as str]
    [clojure.walk :as walk]
    [bidi.ring :as bidi]
    [hiccup.core :refer [html]]
@@ -22,9 +21,11 @@
    [ring.util.response :as response]
    [taoensso.timbre :as timbre]
    [repopreview.github :as github]
+   [repopreview.github.middleware :as github.middleware]
    [repopreview.middleware :refer [wrap-apply-template
                                    wrap-catch-exceptions
-                                   wrap-keywordize-query-params]]
+                                   wrap-keywordize-query-params
+                                   wrap-supply-highlight-js]]
    [repopreview.template :as template]))
 
 (defn index-handler
@@ -33,41 +34,32 @@
    :header  (template/header "Repo Preview")
    :content [:p "Preview a GitHub repository on a single page!"]})
 
-(defn repo-file-comp
-  [{f1-name :name f1-path :path} {f2-name :name f2-path :path}]
-  (cond
-    (str/starts-with? (str/lower-case f1-name) "readme") -1
-    (str/starts-with? (str/lower-case f2-name) "readme") 1
-    :else                                             (compare f1-path f2-path)))
-
-(defn repo-xform
-  [{:keys [max-hits exclude-pattern include-pattern]} & others]
-  (let [max-hits (if (pos-int? max-hits) max-hits 20)
-
-        fns (cond-> [(take max-hits)]
-              (string? include-pattern) (conj (filter #(str/includes? (:name %) include-pattern)))
-              (string? exclude-pattern) (conj (remove #(str/includes? (:name %) exclude-pattern)))
-              (some? others)            (into others))]
-    (apply comp fns)))
-
 (defn repo-root-handler
-  [{{:keys [username repo-name]} :route-params query-params :query-params :as req}]
-  (let [repo-str (str username "/" repo-name)
-        repo     (github/repository username repo-name)
-        ref      (github/branch-ref repo)
-        xform    (->> (map template/code-file)
-                      (repo-xform query-params))
-        tree     (->> (github/repo-tree repo ref)
-                      (github/fetch-contents repo ref)
-                      (sort repo-file-comp)
-                      (into [:div] xform))]
-    {:title   (str repo-str " - Repo Preview")
-     :header  (template/header "Repo Preview" repo-str)
-     :content tree
-     :links   [[:link {:rel  "stylesheet"
-                       :href "//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/default.min.css"}]]
-     :scripts [[:script {:src "//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js"}]
-               [:script "hljs.initHighlightingOnLoad();"]]}))
+  [{:keys [repopreview/repo
+           repopreview/repo-name
+           repopreview/ref
+           repopreview/sort-and-limit
+           repopreview/xform] :as req}]
+  {:title   (str repo-name " - Repo Preview")
+   :header  (template/header "Repo Preview" repo-name)
+   :content (->> (github/repo-tree repo ref)
+                 (sort-and-limit)
+                 (github/fetch-contents repo ref)
+                 (into [:div] xform))})
+
+(defn repo-branch-path
+  [{:keys [repopreview/repo
+           repopreview/repo-name
+           repopreview/path
+           repopreview/ref
+           repopreview/sort-and-limit
+           repopreview/xform] :as req}]
+  {:title   (str repo-name " - Repo Preview")
+   :header  (template/header "Repo Preview" repo-name)
+   :content (->> (github/repo-path repo path)
+                 (sort-and-limit)
+                 (github/fetch-contents repo ref)
+                 (into [:div] xform))})
 
 (defn not-found-handler
   [_]
@@ -80,16 +72,28 @@
       (response/status 404)
       (response/header "Content-Type" "text/html")))
 
+(defn internal-error-handler
+  [_]
+  (-> {:title  "Internal Server Error - Repo Preview"
+       :header  (template/header "Repo Preview" "Internal Server Error" :danger)
+       :content [:p "Awww, man! Something went wrong on our end. We're working on fixing it though!"]}
+      (template/page)
+      (html)
+      (response/response)
+      (response/status 500)
+      (response/header "Content-Type" "text/html")))
+
 (def route-map
   ["/" [["" {:get :index}]
 
         [[:username "/" :repo-name] {:get :repo-root}]
 
-        [[:username "/" :repo-name "/blob/" :branch-name]
-         {:get :repo-root-branch}]
-
-        [[:username "/" :repo-name "/blob/" :branch-name "/" [ #".*" :path ]]
+        [[:username "/" :repo-name "/tree/" [ #".*" :path ]]
          {:get :repo-branch-path}]
+
+        [[:username "/" :repo-name "/blob/" [ #".*" :path ]]
+         {:get :repo-branch-path}]
+
         [true           :not-found]]])
 
 (def handler-map
@@ -97,9 +101,20 @@
               (wrap-apply-template template/page))
 
    :repo-root        (-> repo-root-handler
+                         (github.middleware/wrap-supply-xform)
+                         (github.middleware/wrap-supply-sort-and-limit)
+                         (github.middleware/wrap-supply-ref)
+                         (github.middleware/wrap-supply-repo)
+                         (wrap-supply-highlight-js)
                          (wrap-apply-template template/page))
-   :repo-root-branch nil
-   :repo-branch-path nil
+   :repo-branch-path (-> repo-branch-path
+                         (github.middleware/wrap-supply-xform)
+                         (github.middleware/wrap-supply-sort-and-limit)
+                         (github.middleware/wrap-supply-ref)
+                         (github.middleware/wrap-supply-branch-and-path)
+                         (github.middleware/wrap-supply-repo)
+                         (wrap-supply-highlight-js)
+                         (wrap-apply-template template/page))
 
    :js-resource (bidi/resources {:prefix "public/js"})
    :not-found   not-found-handler})
@@ -112,4 +127,4 @@
       (bidi/make-handler)
       (wrap-keywordize-query-params)
       (wrap-params)
-      (wrap-catch-exceptions)))
+      (wrap-catch-exceptions internal-error-handler)))

@@ -12,13 +12,48 @@
 ;; See the License for the specific language governing permissions and
 ;; limitations under the License.
 
-(ns repopreview.template)
+(ns repopreview.template
+  (:import
+   com.google.common.io.Files)
+  (:require
+   [clojure.string :as str]))
+
+(def special-files
+  {"dockerfile"     "lang-docker"
+   "makefile"       "lang-makefile"
+   "cmakelists.txt" "lang-cmake"})
+
+(defn file-ext
+  [filename]
+  (-> (Files/getFileExtension filename)
+      (str/lower-case)))
+
+(defn guess-css-class
+  "Very roughly guess what CSS class should be applied to highlight a given file
+  using the file extension and a few very simple heuristics for known common
+  filenames which do not typically have extensions."
+  [filename]
+  (let [filename-lower (str/lower-case filename)
+        extension      (file-ext filename)]
+    (cond
+      (contains? special-files filename-lower)
+      (get special-files filename-lower)
+
+      (not (str/blank? extension))
+      (str "lang-" extension)
+
+      :else
+      "nohighlight")))
 
 (defn code-file
   [{:keys [name sha content]}]
-  [:div
-   [:h4 {:id (str "file-" sha) :class "title is-4"} name]
-   [:pre [:code content]]])
+  (let [code-css-class (guess-css-class name)]
+    [:div
+     [:h4 {:id (str "file-" sha) :class "title is-4"} name]
+     [:pre [:code
+            (when code-css-class
+              {:class code-css-class})
+            content]]]))
 
 (defn page
   [{:keys [title header content links scripts]}]

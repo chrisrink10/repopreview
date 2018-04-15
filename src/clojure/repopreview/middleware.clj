@@ -20,6 +20,10 @@
    [taoensso.timbre :as timbre]))
 
 (defn wrap-apply-template
+  "Apply a Hiccup template function to the response from a handler.
+
+  This middleware should be applied towards the end of the middleware chain
+  as it transforms the response into a Ring response map."
   [handler template]
   (fn [req]
     (-> (handler req)
@@ -30,15 +34,14 @@
         (response/header "Content-Type" "text/html"))))
 
 (defn wrap-catch-exceptions
-  [handler]
+  [handler error-handler]
   (fn [req]
     (try
       (handler req)
       (catch Exception e
-        (do(timbre/error {:message   "Exception occurred processing request"
-                          :exception e})
-           (-> (response/response "Error")
-               (response/status 500)))))))
+        (do (timbre/error {:message   "Exception occurred processing request"
+                           :exception e})
+            (error-handler req))))))
 
 (defn wrap-keywordize-query-params
   [handler]
@@ -46,3 +49,22 @@
     (->> (walk/keywordize-keys query-params)
          (assoc req :query-params)
          (handler))))
+
+(def highlight-js-css-link
+  "//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/default.min.css")
+
+(def highlight-js-script-cdn
+  "//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js")
+
+(def highlight-js-script-init
+  "hljs.initHighlightingOnLoad();")
+
+(defn wrap-supply-highlight-js
+  "Inject Highlight.js links into the response entity."
+  [handler]
+  (fn [req]
+    (-> (handler req)
+        (update :links #(conj % [:link {:rel  "stylesheet"
+                                        :href highlight-js-css-link}]))
+        (update :scripts #(into % [[:script highlight-js-script-init]
+                                   [:script {:src highlight-js-script-cdn}]])))))
